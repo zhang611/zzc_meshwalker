@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import os
 import time
 import sys
@@ -12,6 +11,13 @@ import rnn_model
 import dataset
 import utils
 import params_setting
+
+
+# from tensorflow.compat.v1 import ConfigProto
+# from tensorflow.compat.v1 import InteractiveSession
+# config = ConfigProto()
+# config.gpu_options.allow_growth = True
+# session = InteractiveSession(config=config)
 
 
 def train_val(params):
@@ -135,7 +141,7 @@ def train_val(params):
         model_ftrs = tf.reshape(model_ftrs_, (-1, sp[-2], sp[-1]))
         if one_label_per_model:
             labels = tf.reshape(tf.transpose(tf.stack((labels_,) * params.n_walks_per_model)), (-1,))
-            predictions = dnn_model(model_ftrs, training=False)
+            predictions = dnn_odel(model_ftrs, training=False)
         else:
             labels = tf.reshape(labels_, (-1, sp[-2]))
             skip = params.min_seq_len
@@ -259,12 +265,17 @@ def get_params(job, job_part):
     if job == 'coseg':
         params = params_setting.coseg_params(job_part)  # job_part can be : 'aliens' or 'chairs' or 'vases'
 
+    # if job.startswith('psb'):
+    #   params = params_setting.psb_params(job)
+    #
+    # if job.startswith('coseg'):
+    #   params = params_setting.cosegs_params(job)
+
     return params
 
 
 def run_one_job(job, job_part):
     params = get_params(job, job_part)
-
     train_val(params)
 
 
@@ -290,11 +301,8 @@ def get_all_jobs():
 
 
 if __name__ == '__main__':
-    sys.stdout.reconfigure(encoding='utf-8')
-
     np.random.seed(0)
     utils.config_gpu()
-
     if len(sys.argv) <= 1:
         print('Use: python train_val.py <job> <part>')
         print('<job> can be one of the following: shrec11 / coseg / human_seg / cubes / modelnet40')
