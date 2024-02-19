@@ -1,13 +1,15 @@
-import glob, os, copy
-
-import tensorflow as tf
+import copy
+import glob
 import numpy as np
+import os
+import tensorflow as tf
 
+import dataset_prepare
 import utils
 import walks
-import dataset_prepare
 
 # Glabal list of dataset parameters. Used as part of runtime acceleration affort.
+# 数据集参数全局列表，让运行时加速
 dataset_params_list = []
 
 
@@ -329,4 +331,4 @@ def tf_mesh_dataset(params, pathname_expansion, mode=None, size_limit=np.inf, sh
 
 if __name__ == '__main__':
     utils.config_gpu(False)
-    np.random.seed(1)
+    np.random.seed(1)  # 固定随机数种子

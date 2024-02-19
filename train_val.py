@@ -183,11 +183,11 @@ def train_val(params):
             tf.summary.scalar(name="train/learning_rate", data=optimizer._decayed_lr(tf.float32),
                               step=optimizer.iterations)
             tf.summary.scalar(name="mem/free", data=utils.check_mem_and_exit_if_full(), step=optimizer.iterations)
-            gpu_tmpr = utils.get_gpu_temprature()
-            if gpu_tmpr > 95:
-                print('GPU temprature is too high!!!!!')
-                exit(0)
-            tf.summary.scalar(name="mem/gpu_tmpr", data=gpu_tmpr, step=optimizer.iterations)
+            # gpu_tmpr = utils.get_gpu_temprature()  # 防止GPU温度过高
+            # if gpu_tmpr > 95:
+            #     print('GPU temprature is too high!!!!!')
+            #     exit(0)
+            # tf.summary.scalar(name="mem/gpu_tmpr", data=gpu_tmpr, step=optimizer.iterations)  # 记录GPU温度
 
             # Train one EPOC
             train_logs['seg_loss'].reset_states()
