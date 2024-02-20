@@ -59,6 +59,7 @@ def calc_mesh_area(mesh):
 
 
 def prepare_edges_and_kdtree(mesh):
+    """obj文件里只有顶点和面，通过顶点和面得到边"""
     vertices = mesh['vertices']
     faces = mesh['faces']
     mesh['edges'] = [set() for _ in range(vertices.shape[0])]
@@ -90,70 +91,83 @@ def prepare_edges_and_kdtree(mesh):
 
 
 def add_fields_and_dump_model(mesh_data, fileds_needed, out_fn, dataset_name, dump_model=True):
+    # mesh_data 就是字典
+    # fileds_needed 字典需要的7个键
+    # out_fn 输出路径
+    # dataset_name = 'coseg'
     m = {}   # 存放模型的字典
     for k, v in mesh_data.items():
-        if k in fileds_needed:     # 先把这四个键的值写进去
+        if k in fileds_needed:     # 先把前面搞好的4个写进去，顶点，面，labels(单值标签)，label
             m[k] = v
     for field in fileds_needed:    # 初始化其他键的值
         if field not in m.keys():
-            if field == 'labels':
+            if field == 'labels':  # 前面没有给单值标签，这里就初始化为0
                 m[field] = np.zeros((0,))
-            if field == 'dataset_name':    # 就是所属数据集，分类任务这就是标签吧
+            if field == 'dataset_name':    # 就是所属数据集
                 m[field] = dataset_name
             if field == 'walk_cache':      # 游走的缓存
                 m[field] = np.zeros((0,))
-            if field == 'kdtree_query' or field == 'edges':
+            if field == 'kdtree_query' or field == 'edges':  # 两个是一个东西，用kdtree表示边
                 prepare_edges_and_kdtree(m)
 
     if dump_model:
-        np.savez(out_fn, **m)    # 保存下来，方便使用
+        np.savez(out_fn, **m)    # 一个obj变成一个npz，神经网络就用这个
 
     return m
 
 
-def get_labels(dataset_name, mesh, file, fn2labels_map=None):
+def get_labels(dataset_name, mesh, file, fn2labels_map=None):  # 这个mes是字典
     v_labels_fuzzy = np.zeros((0,))
     if dataset_name.startswith('coseg') or dataset_name == 'human_seg_from_meshcnn':
-        labels_fn = '/'.join(file.split('/')[:-2]) + '/seg/' + file.split('/')[-1].split('.')[-2] + '.eseg'
-        e_labels = np.loadtxt(labels_fn)
-        v_labels = [[] for _ in range(mesh['vertices'].shape[0])]
+        # labels_fn = '/'.join(file.split('/')[:-2]) + '/seg/' + file.split('/')[-1].split('.')[-2] + '.eseg'
+        # labels_fn = 'datasets_raw/from_meshcnn/coseg/coseg_aliens/seg/train\\1.eseg'
+        labels_fn = '/'.join(file.split('/')[:-2]) + '/seg/' + file.split('/')[-1].split('.')[-2].split('\\')[-1] + '.eseg'
+        # labels_fn = 'datasets_raw/from_meshcnn/coseg/coseg_aliens/seg/1.eseg'
+        e_labels = np.loadtxt(labels_fn)  # 单值标签,2250个，应该是边数
+        v_labels = [[] for _ in range(mesh['vertices'].shape[0])]  # 初始化，全是空的，这个mesh是字典
         faces = mesh['faces']
 
         fuzzy_labels_fn = '/'.join(file.split('/')[:-2]) + '/sseg/' + file.split('/')[-1].split('.')[-2] + '.seseg'
-        seseg_labels = np.loadtxt(fuzzy_labels_fn)
+        # fuzzy_labels_fn = 'datasets_raw/from_meshcnn/coseg/coseg_aliens/sseg/train\\1.seseg'
+        fuzzy_labels_fn = '/'.join(file.split('/')[:-2]) + '/sseg/' + file.split('/')[-1].split('.')[-2].split('\\')[-1] + '.seseg'
+        # fuzzy_labels_fn = 'datasets_raw/from_meshcnn/coseg/coseg_aliens/sseg/1.seseg'
+        seseg_labels = np.loadtxt(fuzzy_labels_fn)  # 多值标签
         v_labels_fuzzy = np.zeros((mesh['vertices'].shape[0], seseg_labels.shape[1]))
 
-        edge2key = dict()
-        edges = []
+        edge2key = dict()  # 边就是键，边标签文件里面对应的索引就是值，(8, 246) 这条边就是对应 0号边
+        edges = []  # 记录所有边的列表
         edges_count = 0
+        # 只提供了边的标签，要用这个得到顶点的标签
+        # 面里面是顶点的索引 [246 8 118]
         for face_id, face in enumerate(faces):
             faces_edges = []
             for i in range(3):
                 cur_edge = (face[i], face[(i + 1) % 3])
-                faces_edges.append(cur_edge)
+                faces_edges.append(cur_edge)  # 一个面的三条边  [(246, 8), (8, 118), (118, 246)]
             for idx, edge in enumerate(faces_edges):
-                edge = tuple(sorted(list(edge)))
-                faces_edges[idx] = edge
-                if edge not in edge2key:
-                    v_labels_fuzzy[edge[0]] += seseg_labels[edges_count]
-                    v_labels_fuzzy[edge[1]] += seseg_labels[edges_count]
+                edge = tuple(sorted(list(edge)))  # 调整顺序，并且变成元组  (8, 246)
+                faces_edges[idx] = edge           # 调整好的顺序写回去
+                if edge not in edge2key:  # 所有的边都要过一次，也就是一次
+                    # 如果可以work的话，也就是说seseg文件里的标签也是按照这个逻辑写的
+                    v_labels_fuzzy[edge[0]] += seseg_labels[edges_count]  # 一条边的第一个顶点，多值标签
+                    v_labels_fuzzy[edge[1]] += seseg_labels[edges_count]  # 一条边的第二个顶点，都加上去，最后应该要归一化
 
-                    edge2key[edge] = edges_count
+                    edge2key[edge] = edges_count   # (8, 246) 这条边就是对应 0号边
                     edges.append(list(edge))
-                    v_labels[edge[0]].append(e_labels[edges_count])
-                    v_labels[edge[1]].append(e_labels[edges_count])
+                    v_labels[edge[0]].append(e_labels[edges_count])  # 对应的单值标签
+                    v_labels[edge[1]].append(e_labels[edges_count])  # 都加进来，后面还要看谁出现次数最多
                     edges_count += 1
-
+        # 非 0 标签的数量不能超过3
         assert np.max(np.sum(v_labels_fuzzy != 0, axis=1)) <= 3, 'Number of non-zero labels must not acceeds 3!'
 
         vertex_labels = []
         for l in v_labels:
-            l2add = np.argmax(np.bincount(l))
-            vertex_labels.append(l2add)
+            l2add = np.argmax(np.bincount(l))  # 就是获得出现次数做多的那个数
+            vertex_labels.append(l2add)  # 写标签
         vertex_labels = np.array(vertex_labels)
         model_label = np.zeros((0,))
 
-        return model_label, vertex_labels, v_labels_fuzzy
+        return model_label, vertex_labels, v_labels_fuzzy  # 模型标签(分类任务)，顶点的单值标签，顶点的多值标签
     else:
         tmp = file.split('/')[-1]
         model_name = '_'.join(tmp.split('_')[:-1])
@@ -176,18 +190,23 @@ def get_labels(dataset_name, mesh, file, fn2labels_map=None):
 
 def remesh(mesh_orig, target_n_faces, add_labels=False, labels_orig=None):
     """就是下采样，但是没看到标签变"""
+    # mesh_orig 就是加载的 mesh 模型的复制
+    # target_n_faces = inf
+    # add_labels = 'coseg'
+    # labels_orig 顶点的单值标签
     labels = labels_orig
-    if target_n_faces < np.asarray(mesh_orig.triangles).shape[0]:
+    if target_n_faces < np.asarray(mesh_orig.triangles).shape[0]:  # 小于 1500 就是要下采样，设置的是 inf
         mesh = mesh_orig.simplify_quadric_decimation(target_n_faces)  # 边折叠？反正把面数降下来
         str_to_add = '_simplified_to_' + str(target_n_faces)    # 简化到了多少个面
         mesh = mesh.remove_unreferenced_vertices()              # 清理没用的顶点
         if add_labels and labels_orig.size:   # 没实现，不管他
-            labels = fix_labels_by_dist(np.asarray(mesh.vertices), np.asarray(mesh_orig.vertices), labels_orig)
+            pass
+            # labels = fix_labels_by_dist(np.asarray(mesh.vertices), np.asarray(mesh_orig.vertices), labels_orig)
     else:
         mesh = mesh_orig   # 面数足够少了
         str_to_add = '_not_changed_' + str(np.asarray(mesh_orig.triangles).shape[0])
 
-    return mesh, labels, str_to_add
+    return mesh, labels, str_to_add   # 模型，单值标签，表示模型有没有下少采样的附加信息
 
 
 def load_mesh(model_fn, classification=True):
@@ -197,9 +216,9 @@ def load_mesh(model_fn, classification=True):
         mesh_.remove_duplicate_faces()   # 去除重复的
     else:
         mesh_ = trimesh.load_mesh(model_fn, process=False)   # 加载三角形mesh
-    mesh = open3d.geometry.TriangleMesh()  # 应该是实例化一个 mesh
-    mesh.vertices = open3d.utility.Vector3dVector(mesh_.vertices)
-    mesh.triangles = open3d.utility.Vector3iVector(mesh_.faces)
+    mesh = open3d.geometry.TriangleMesh()                          # 实例化一个 mesh
+    mesh.vertices = open3d.utility.Vector3dVector(mesh_.vertices)  # 把顶点写进来
+    mesh.triangles = open3d.utility.Vector3iVector(mesh_.faces)    # 把面写进来
 
     return mesh
 
@@ -218,27 +237,34 @@ def create_tmp_dataset(model_fn, p_out, n_target_faces):
     add_fields_and_dump_model(mesh_data, fileds_needed, out_fn, 'tmp')
 
 
-# prepare_directory(dataset_name, pathname_expansion=pin + '*.obj',
-#                           p_out=p_out, add_labels=dataset_name, fn_prefix=part + '_', n_target_faces=[np.inf],
-#                           classification=False)
 def prepare_directory(dataset_name, pathname_expansion=None, p_out=None, n_target_faces=None, add_labels=True,
                       size_limit=np.inf, fn_prefix='', verbose=True, classification=True):
+    # dataset_name = 'coseg'
+    # pathname_expansion = 'datasets_raw/from_meshcnn/coseg/coseg_aliens//train/*.obj'
+    # p_out = 'datasets_processed/coseg_from_meshcnn/coseg_aliens'
+    # n_target_faces = [inf]
+    # add_labels = 'coseg'
+    # size_limit = np.inf
+    # fn_prefix = 'train_'
+    # verbose = True
+    # classification = false
     fileds_needed = ['vertices', 'faces', 'edges',
-                     'label', 'labels', 'dataset_name', 'labels_fuzzy']
+                     'label', 'labels', 'dataset_name', 'labels_fuzzy']  # mesh字典的键，7个
 
     if not os.path.isdir(p_out):
         os.makedirs(p_out)
 
-    filenames = glob.glob(pathname_expansion)  # 要处理的模型路径列表，测试集4个，训练集16个
+    filenames = glob.glob(pathname_expansion)  # 要处理的模型路径列表，训练集下的169个模型
     filenames.sort()                           # 先排序
     if len(filenames) > size_limit:
         filenames = filenames[:size_limit]
-    for file in tqdm(filenames, disable=1 - verbose):
+    for file in tqdm(filenames, disable=1 - verbose):   # diasble 是否输出详细信息
         out_fn = p_out + '/' + fn_prefix + os.path.split(file)[1].split('.')[0]
+        # 'datasets_processed/coseg_from_meshcnn/coseg_aliens/train_1'
         mesh = load_mesh(file, classification=classification)
         mesh_orig = mesh
         mesh_data = EasyDict({'vertices': np.asarray(mesh.vertices), 'faces': np.asarray(mesh.triangles)})
-        if add_labels:
+        if add_labels:  # 是否加上标签
             if type(add_labels) is list:
                 fn2labels_map = add_labels
             else:
@@ -246,14 +272,14 @@ def prepare_directory(dataset_name, pathname_expansion=None, p_out=None, n_targe
             label, labels_orig, v_labels_fuzzy = get_labels(dataset_name, mesh_data, file, fn2labels_map=fn2labels_map)
         else:
             label = np.zeros((0,))
-        for this_target_n_faces in n_target_faces:
+        for this_target_n_faces in n_target_faces:  # 多个就是要下采样
             mesh, labels, str_to_add = remesh(mesh_orig, this_target_n_faces, add_labels=add_labels,
                                               labels_orig=labels_orig)
             mesh_data = EasyDict(
                 {'vertices': np.asarray(mesh.vertices), 'faces': np.asarray(mesh.triangles), 'label': label,
                  'labels': labels})
             mesh_data['labels_fuzzy'] = v_labels_fuzzy
-            out_fc_full = out_fn + str_to_add
+            out_fc_full = out_fn + str_to_add  # 最后的npz输出路径
             add_fields_and_dump_model(mesh_data, fileds_needed, out_fc_full, dataset_name)
 
 
@@ -287,7 +313,7 @@ def prepare_cubes(labels2use=cubes_labels,
                               classification=False)
 
 
-def prepare_seg_from_meshcnn(dataset, subfolder=None):
+def prepare_seg_from_meshcnn(dataset, subfolder=None):   # coseg coseg_aliens
     if dataset == 'human_body':
         dataset_name = 'human_seg_from_meshcnn'
         p_in2add = 'human_seg'
@@ -295,14 +321,16 @@ def prepare_seg_from_meshcnn(dataset, subfolder=None):
         p_ext = ''
     elif dataset == 'coseg':
         p_out_sub = dataset_name = 'coseg'
-        p_in2add = dataset_name + '/' + subfolder
-        p_ext = subfolder
+        p_in2add = dataset_name + '/' + subfolder   # 'coseg/coseg_aliens'
+        p_ext = subfolder   # 'coseg_aliens'
 
-    path_in = 'datasets_raw/from_meshcnn/' + p_in2add + '/'
-    p_out = 'datasets_processed/' + p_out_sub + '_from_meshcnn/' + p_ext
+    path_in = 'datasets_raw/from_meshcnn/' + p_in2add + '/'   # 'datasets_raw/from_meshcnn/coseg/coseg_aliens/'
+    p_out = 'datasets_processed/' + p_out_sub + '_from_meshcnn/' + p_ext  # 'datasets_processed/coseg_from_meshcnn/coseg_aliens'
 
     for part in ['test', 'train']:
-        pin = path_in + '/' + part + '/'
+        pin = path_in + '/' + part + '/'  # 'datasets_raw/from_meshcnn/coseg/coseg_aliens//train/'
+        # pathname_expansion = 'datasets_raw/from_meshcnn/coseg/coseg_aliens//train/*.obj'
+        # fn_prefix = 'train_'
         prepare_directory(dataset_name, pathname_expansion=pin + '*.obj',
                           p_out=p_out, add_labels=dataset_name, fn_prefix=part + '_', n_target_faces=[np.inf],
                           classification=False)
@@ -328,8 +356,8 @@ def prepare_one_dataset(dataset_name):
 
     if dataset_name == 'coseg':
         prepare_seg_from_meshcnn('coseg', 'coseg_aliens')
-        prepare_seg_from_meshcnn('coseg', 'coseg_chairs')
-        prepare_seg_from_meshcnn('coseg', 'coseg_vases')
+        # prepare_seg_from_meshcnn('coseg', 'coseg_chairs')
+        # prepare_seg_from_meshcnn('coseg', 'coseg_vases')
 
 
 if __name__ == '__main__':
