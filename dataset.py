@@ -31,14 +31,14 @@ def norm_model(vertices):
 
     # Scale model to fit into the unit ball
     norm_with = np.max(vertices)  # 返回所有顶点坐标的最大值
-    vertices /= norm_with  # 将模型缩放到单位球内
+    vertices /= norm_with         # 将模型缩放到单位球内
 
-    if norm_model.sub_mean_for_data_augmentation:  # TODO: check again
-        vertices -= np.nanmean(vertices, axis=0)
+    if norm_model.sub_mean_for_data_augmentation:  # 减去均值的数据增强，做了
+        vertices -= np.nanmean(vertices, axis=0)   # 单位球接近坐标原点
 
 
 def get_file_names(pathname_expansion, min_max_faces2use):
-    """获得模型路径的列表"""
+    """获得模型路径的列表，会过滤掉面数不正常的模型"""
     filenames_ = glob.glob(pathname_expansion)
     filenames = []
     for fn in filenames_:
@@ -56,8 +56,9 @@ def get_file_names(pathname_expansion, min_max_faces2use):
 
 
 def dump_all_fns_to_file(filenames, params):
+    # 把数据集的路径写到日志里面，训练集的00，测试集的01
     if 'logdir' in params.keys():
-        for n in range(10):  # 循环创建日志文件名
+        for n in range(10):
             log_fn = params.logdir + '/dataset_files_' + str(n).zfill(2) + '.txt'  # dataset_files_00.txt
             if not os.path.isfile(log_fn):  # 日志是否存在
                 try:
@@ -70,6 +71,10 @@ def dump_all_fns_to_file(filenames, params):
 
 
 def filter_fn_by_class(filenames_, classes_indices_to_use):
+    """
+    过滤一遍所有npz文件
+    mesh_data['label']必须要是null
+    """
     filenames = []
     for fn in filenames_:
         mesh_data = np.load(fn, encoding='latin1', allow_pickle=True)
@@ -80,8 +85,12 @@ def filter_fn_by_class(filenames_, classes_indices_to_use):
 
 
 def data_augmentation_rotation(vertices):
+    """
+    只需要修改顶点坐标，边和面是拓扑关系，不用管他
+    三个坐标都随机旋转吗
+    """
     max_rot_ang_deg = data_augmentation_rotation.max_rot_ang_deg
-    x = np.random.uniform(-max_rot_ang_deg, max_rot_ang_deg) * np.pi / 180
+    x = np.random.uniform(-max_rot_ang_deg, max_rot_ang_deg) * np.pi / 180  # 弧度制
     y = np.random.uniform(-max_rot_ang_deg, max_rot_ang_deg) * np.pi / 180
     z = np.random.uniform(-max_rot_ang_deg, max_rot_ang_deg) * np.pi / 180
     A = np.array(((np.cos(x), -np.sin(x), 0),
@@ -106,8 +115,8 @@ def data_augmentation_rotation(vertices):
 # ------------------------------------------------------------------ #
 def fill_xyz_features(features, f_idx, vertices, mesh_extra, seq, jumps, seq_len):
     """给每个顶点加三个位置坐标的特征"""
-    walk = vertices[seq[1:seq_len + 1]]
-    features[:, f_idx:f_idx + walk.shape[1]] = walk
+    walk = vertices[seq[1:seq_len + 1]]  # 300个顶点的坐标
+    features[:, f_idx:f_idx + walk.shape[1]] = walk  # 第一个维度应该是并行的，第二个维度加三个特征xyz
     f_idx += 3
     return f_idx
 
@@ -137,12 +146,12 @@ def setup_data_augmentation(dataset_params, data_augmentation):
 
 
 def setup_features_params(dataset_params, params):
-    if params.uniform_starting_point:
+    if params.uniform_starting_point:  # false
         dataset_params.area = 'all'
     else:
         dataset_params.area = -1
     norm_model.sub_mean_for_data_augmentation = params.sub_mean_for_data_augmentation
-    dataset_params.support_mesh_cnn_ftrs = False
+    dataset_params.support_mesh_cnn_ftrs = False  # 没有用meshcnn的特征
     dataset_params.fill_features_functions = []
     dataset_params.number_of_features = 0
     net_input = params.net_input
@@ -162,7 +171,7 @@ def setup_features_params(dataset_params, params):
     else:
         raise Exception('Walk alg not recognized: ' + params.walk_alg)
 
-    return dataset_params.number_of_features
+    return dataset_params.number_of_features   # 就用了dxdydz这三个
 
 
 # ------------------------------------------------- #
@@ -199,14 +208,14 @@ def mesh_data_to_walk_features(mesh_data, dataset_params):
     vertices = mesh_data['vertices']
     seq_len = dataset_params.seq_len
     if dataset_params.set_seq_len_by_n_faces:
-        seq_len = int(mesh_data['vertices'].shape[0])
+        seq_len = int(mesh_data['vertices'].shape[0])  # 这是要填满的意思吗
         seq_len = min(seq_len, dataset_params.seq_len)
 
     # Preprocessing
-    if dataset_params.adjust_vertical_model:
+    if dataset_params.adjust_vertical_model:  # false
         vertices[:, 1] -= vertices[:, 1].min()
     if dataset_params.normalize_model:
-        norm_model(vertices)
+        norm_model(vertices)  # 就是归一化
 
     # Data augmentation
     for data_augmentaion_function in dataset_params.data_augmentaion_vertices_functions:
@@ -214,7 +223,7 @@ def mesh_data_to_walk_features(mesh_data, dataset_params):
 
     # Get essential data from file
     if dataset_params.label_per_step:
-        mesh_labels = mesh_data['labels']
+        mesh_labels = mesh_data['labels']  # 根据顶点的索引获得标签
     else:
         mesh_labels = -1 * np.ones((vertices.shape[0],))
 
@@ -227,7 +236,7 @@ def mesh_data_to_walk_features(mesh_data, dataset_params):
                         dtype=np.float32)
     labels = np.zeros((dataset_params.n_walks_per_model, seq_len), dtype=np.int32)
 
-    for walk_id in range(dataset_params.n_walks_per_model):
+    for walk_id in range(dataset_params.n_walks_per_model):  # 4
         f0 = np.random.randint(vertices.shape[0])  # Get walk starting point
         seq, jumps = dataset_params.walk_function(mesh_extra, f0, seq_len)  # Get walk indices (and jump indications)
 
@@ -284,16 +293,18 @@ class OpenMeshDataset(tf.data.Dataset):
 def tf_mesh_dataset(params, pathname_expansion, mode=None, size_limit=np.inf, shuffle_size=1000,
                     permute_file_names=True, min_max_faces2use=[0, np.inf], data_augmentation={},
                     must_run_on_all=False, min_dataset_size=16):
+    # pathname_expansion = 'datasets_processed/coseg_from_meshcnn/coseg_aliens/*train*.npz'
+    # mode 分类或者分割
     params_idx = setup_dataset_params(params, data_augmentation)
-    number_of_features = dataset_params_list[params_idx].number_of_features
-    params.net_input_dim = number_of_features
+    number_of_features = dataset_params_list[params_idx].number_of_features  # 3
+    params.net_input_dim = number_of_features  # 输入的维度就是 3
     mesh_data_to_walk_features.SET_SEED_WALK = 0
 
-    filenames = get_file_names(pathname_expansion, min_max_faces2use)
-    if params.classes_indices_to_use is not None:
+    filenames = get_file_names(pathname_expansion, min_max_faces2use)  # 训练集就是169个npz路径
+    if params.classes_indices_to_use is not None:  # None 没用
         filenames = filter_fn_by_class(filenames, params.classes_indices_to_use)
 
-    if permute_file_names:
+    if permute_file_names:  # 打乱
         filenames = np.random.permutation(filenames)
     else:
         filenames.sort()
@@ -301,14 +312,14 @@ def tf_mesh_dataset(params, pathname_expansion, mode=None, size_limit=np.inf, sh
 
     if size_limit < len(filenames):
         filenames = filenames[:size_limit]
-    n_items = len(filenames)
-    if len(filenames) < min_dataset_size:
+    n_items = len(filenames)  # 迭代用的就是 169
+    if len(filenames) < min_dataset_size:  # 如果不够就机械的重复一下
         filenames = filenames.tolist() * (int(min_dataset_size / len(filenames)) + 1)
 
     if mode == 'classification':
         dataset_params_list[params_idx].label_per_step = False
     elif mode == 'semantic_segmentation':
-        dataset_params_list[params_idx].label_per_step = True
+        dataset_params_list[params_idx].label_per_step = True  # 每一个面片都要输出标签
     else:
         raise Exception('DS mode ?')
 

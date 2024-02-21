@@ -10,5 +10,5 @@ filenames.sort()    # 排序
 # 加载 npz 查看
 import numpy as np
 path = r'datasets_processed\coseg_from_meshcnn\coseg_aliens\train_1_not_changed_1500.npz'
-data = np.load(path)
-data.close()    # 释放内存
+mesh_data = np.load(path, encoding='latin1', allow_pickle=True)
+mesh_data.close()    # 释放内存

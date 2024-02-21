@@ -21,7 +21,7 @@ import params_setting
 
 
 def train_val(params):
-    utils.next_iter_to_keep = 10000
+    utils.next_iter_to_keep = 10000  #
     print(utils.color.BOLD + utils.color.RED + 'params.logdir :::: ', params.logdir, utils.color.END)
     print(utils.color.BOLD + utils.color.RED, os.getpid(), utils.color.END)
     utils.backup_python_files_and_params(params)
@@ -31,7 +31,7 @@ def train_val(params):
     train_datasets = []
     train_ds_iters = []
     max_train_size = 0
-    for i in range(len(params.datasets2use['train'])):
+    for i in range(len(params.datasets2use['train'])):  # 就1个，训练集的
         this_train_dataset, n_trn_items = dataset.tf_mesh_dataset(params, params.datasets2use['train'][i],
                                                                   mode=params.network_tasks[i],
                                                                   size_limit=params.train_dataset_size_limit,
@@ -48,25 +48,25 @@ def train_val(params):
     if params.datasets2use['test'] is None:
         test_dataset = None
         n_tst_items = 0
-    else:
+    else:  # 准备测试集
         test_dataset, n_tst_items = dataset.tf_mesh_dataset(params, params.datasets2use['test'][0],
                                                             mode=params.network_tasks[0],
                                                             size_limit=params.test_dataset_size_limit,
                                                             shuffle_size=100,
                                                             min_max_faces2use=params.test_min_max_faces2use)
-    print(' Test Dataset size:', n_tst_items)
+    print('Test Dataset size:', n_tst_items)
 
     # Set up RNN model and optimizer
     # ------------------------------
     if params.net_start_from_prev_net is not None:
         init_net_using = params.net_start_from_prev_net
     else:
-        init_net_using = None
+        init_net_using = None   # 从0开始训练神经网络
 
     if params.optimizer_type == 'adam':
         optimizer = tf.keras.optimizers.Adam(lr=params.learning_rate[0], clipnorm=params.gradient_clip_th)
-    elif params.optimizer_type == 'cycle':
-        @tf.function
+    elif params.optimizer_type == 'cycle':  # 用这个优化器
+        @tf.function   # TODO：什么东西
         def _scale_fn(x):
             x_th = 500e3 / params.cycle_opt_prms.step_size
             if x < x_th:
@@ -106,7 +106,7 @@ def train_val(params):
     # ----------------------
     if params.last_layer_actication is None:
         seg_loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    else:
+    else:  # 走这个
         seg_loss = tf.keras.losses.SparseCategoricalCrossentropy()
 
     @tf.function
@@ -157,16 +157,16 @@ def train_val(params):
 
     # Loop over training EPOCHs
     # -------------------------
-    one_label_per_model = params.network_task == 'classification'
+    one_label_per_model = params.network_task == 'classification'  # False
     next_iter_to_log = 0
     e_time = 0
     accrcy_smoothed = tb_epoch = last_loss = None
     all_confusion = {}
     with tf.summary.create_file_writer(params.logdir).as_default():
         epoch = 0
-        while optimizer.iterations.numpy() < params.iters_to_train + train_epoch_size * 2:
+        while optimizer.iterations.numpy() < params.iters_to_train + train_epoch_size * 2:  # 开始训练，20多万次迭代
             epoch += 1
-            str_to_print = str(os.getpid()) + ') Epoch' + str(epoch) + ', iter ' + str(optimizer.iterations.numpy())
+            str_to_print = str(os.getpid()) + ') Epoch' + str(epoch) + ', iter ' + str(optimizer.iterations.numpy())  # 输出信息，'14308) Epoch1, iter 0'
 
             # Save some logs & infos
             utils.save_model_if_needed(optimizer.iterations, dnn_model, params)
@@ -178,7 +178,7 @@ def train_val(params):
                     if time_msrs[name]:  # if there is something to save
                         tf.summary.scalar('time/' + name, time_msrs[name], step=optimizer.iterations)
                         time_msrs[name] = 0
-            tb_epoch = time.time()
+            tb_epoch = time.time()  # 记录epoch开始的时间
             n_iters = 0
             tf.summary.scalar(name="train/learning_rate", data=optimizer._decayed_lr(tf.float32),
                               step=optimizer.iterations)
@@ -191,20 +191,20 @@ def train_val(params):
 
             # Train one EPOC
             train_logs['seg_loss'].reset_states()
-            tb = time.time()
-            for iter_db in range(train_epoch_size):
+            tb = time.time()  # 记录iter开始的时间
+            for iter_db in range(train_epoch_size):  # 一个epoch八个iter
                 for dataset_id in range(len(train_datasets)):
-                    name, model_ftrs, labels = train_ds_iters[dataset_id].next()
-                    dataset_type = utils.get_dataset_type_from_name(name)
+                    name, model_ftrs, labels = train_ds_iters[dataset_id].next()  # 八个模型的路径，特征(8 4 300 3)，标签(8 4 300)
+                    dataset_type = utils.get_dataset_type_from_name(name)  # coseg
                     time_msrs['get_train_data'] += time.time() - tb
                     n_iters += 1
                     tb = time.time()
                     if params.train_loss[dataset_id] == 'cros_entr':
-                        train_step(model_ftrs, labels, one_label_per_model=one_label_per_model)
+                        train_step(model_ftrs, labels, one_label_per_model=one_label_per_model)  # 一步训练
                         loss2show = 'seg_loss'
                     else:
                         raise Exception('Unsupported loss_type: ' + params.train_loss[dataset_id])
-                    time_msrs['train_step'] += time.time() - tb
+                    time_msrs['train_step'] += time.time() - tb  # 训练一步花的时间，就是 一个iter
                     tb = time.time()
                 if iter_db == train_epoch_size - 1:
                     str_to_print += ', TrnLoss: ' + str(round(train_logs[loss2show].result().numpy(), 2))
@@ -217,7 +217,7 @@ def train_val(params):
                         v.reset_states()
                 next_iter_to_log += params.log_freq
 
-            # Run test on part of the test set
+            # Run test on part of the test set  八次iter 也就是一次epoch就要跑一下测试集
             if test_dataset is not None:
                 n_test_iters = 0
                 tb = time.time()
@@ -238,10 +238,13 @@ def train_val(params):
                 tf.summary.scalar('test/accuracy_' + dataset_type, test_accuracy.result(), step=optimizer.iterations)
                 str_to_print += ', test/accuracy_' + dataset_type + ': ' + str(round(test_accuracy.result().numpy(), 2))
                 test_accuracy.reset_states()
-                time_msrs['test'] += time.time() - tb
+                time_msrs['test'] += time.time() - tb  # 跑测试集花的时间
 
             str_to_print += ', time: ' + str(round(e_time, 1))
             print(str_to_print)
+            # 14308) Epoch1, iter 0, TrnLoss: 8.0, test/accuracy_coseg: 0.12, time: 0
+            # 14308) Epoch2, iter 8, TrnLoss: 7.77, test/accuracy_coseg: 0.17, time: 1129.3
+            # iter是往上加的，加到20w，epoch就是20w/8
 
     return last_loss
 
@@ -275,8 +278,8 @@ def get_params(job, job_part):
 
 
 def run_one_job(job, job_part):
-    params = get_params(job, job_part)
-    train_val(params)
+    params = get_params(job, job_part)  # 获得参数
+    train_val(params)  # 开始训练
 
 
 def get_all_jobs():
@@ -287,7 +290,7 @@ def get_all_jobs():
                'human_seg',
                'cubes',
                'modelnet40',
-           ][6:]
+           ][6:]  # 前面六个被切掉了，只有后面六个
     job_parts = [
                     '10-10_A', '10-10_B', '10-10_C',
                     '16-04_A', '16-04_B', '16-04_C',
@@ -304,7 +307,7 @@ if __name__ == '__main__':
     np.random.seed(0)
     utils.config_gpu()
     if len(sys.argv) <= 1:
-        print('Use: python train_val.py <job> <part>')
+        print('Use: python train_val.py <job> <part>')  # python train_val.py coseg aliens
         print('<job> can be one of the following: shrec11 / coseg / human_seg / cubes / modelnet40')
         print('<job> can be also "all" to run all of the above.')
         print('<part> should be used in case of shrec11 or coseg datasets.')
@@ -312,8 +315,8 @@ if __name__ == '__main__':
         print('For coseg it should be one of the follows: aliens / vases / chairs')
         print('For example: python train_val.py shrec11 10-10_A')
     else:
-        job = sys.argv[1]
-        job_part = sys.argv[2] if len(sys.argv) > 2 else '-'
+        job = sys.argv[1]  # coseg
+        job_part = sys.argv[2] if len(sys.argv) > 2 else '-'  # aliens
 
         if job.lower() == 'all':
             jobs, job_parts = get_all_jobs()

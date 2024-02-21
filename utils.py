@@ -78,6 +78,8 @@ def backup_python_files_and_params(params):
 
 
 def get_run_folder(root_dir, str2add='', cont_run_number=False):
+    # 提供运行日志系统的路径
+    # 会自动往后添加 0001 实验的索引
     try:
         all_runs = os.listdir(root_dir)
         run_ids = [int(d.split('-')[0]) for d in all_runs if '-' in d]
@@ -97,6 +99,7 @@ last_free_mem = np.inf
 
 
 def check_mem_and_exit_if_full():
+    """内存满了就自动退出，不会报错，好看一点。batchsize设置小点呗"""
     global last_free_mem
     free_mem = psutil.virtual_memory().available + psutil.swap_memory().free
     free_mem_gb = round(free_mem / 1024 / 1024 / 1024, 2)
