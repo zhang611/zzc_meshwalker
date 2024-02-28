@@ -67,8 +67,10 @@ def calc_final_accuracy(models, print_details=False):
     # 标准化后的准确率就是考虑边长和顶点面积，顶点所在面的平均面积
     # Notes:
     # 1. For edge calculation only, the accuracy allow fuzzy labeling:
-    #    like MeshCNN's paper, if an edge is inbetween two different segments, any prediction from the two is considered good.
-    # 2. Normalized accuracy is calculated using the edge length or vertex "area" (which is the mean faces area for each vertex).
+    #    like MeshCNN's paper, if an edge is inbetween two different segments,
+    #    any prediction from the two is considered good.
+    # 2. Normalized accuracy is calculated using the edge length or vertex "area"
+    #    (which is the mean faces area for each vertex).
     vertices_accuracy = [];
     vertices_norm_acc = []
     edges_accuracy = [];
@@ -158,7 +160,7 @@ def calc_accuracy_test(logdir=None, dataset_expansion=None, dnn_model=None, para
     if dnn_model is None:
         dnn_model = rnn_model.RnnWalkNet(params, params.n_classes, params.net_input_dim - 1, model_fn,
                                          model_must_be_load=True,
-                                         dump_model_visualization=False)
+                                          dump_model_visualization=False)
 
     # Skip the 1st half of the walk to get the vertices predictions that are more reliable
     skip = int(params.seq_len * 0.5)
