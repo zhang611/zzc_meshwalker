@@ -38,7 +38,7 @@ def fill_edges(model):
     model['edges_length'] = edges_length
 
 
-def get_model_by_name(name):
+def get_model_by_name(name):   # 通过名字获得模型
     fn = name[name.find(':') + 1:]
     mesh_data = np.load(fn, encoding='latin1', allow_pickle=True)
     model = {'vertices': mesh_data['vertices'], 'faces': mesh_data['faces'], 'labels': mesh_data['labels'],
@@ -117,21 +117,21 @@ def calc_final_accuracy(models, print_details=False):
 
 
 def postprocess_vertex_predictions(models):
-    # Averaging vertices with thir neighbors, to get best prediction (eg.5 in the paper)
+    # Averaging vertices with thir neighbors, to get best prediction (eg.5 in the paper)  平均周围三个点的结果，大家都有后处理
     for model_name, model in models.items():
         pred_orig = model['pred'].copy()
-        av_pred = np.zeros_like(pred_orig)
-        for v in range(model['vertices'].shape[0]):
-            this_pred = pred_orig[v]
-            nbrs_ids = model['edges'][v]
-            nbrs_ids = np.array([n for n in nbrs_ids if n != -1])
-            if nbrs_ids.size:
-                first_ring_pred = (pred_orig[nbrs_ids].T / model['pred_count'][nbrs_ids]).T
+        av_pred = np.zeros_like(pred_orig)   # 初始化平均结果
+        for v in range(model['vertices'].shape[0]):    # 看每个顶点周围几个顶点的结果，平均
+            this_pred = pred_orig[v]        # 当前顶点的预测结果
+            nbrs_ids = model['edges'][v]    # 周围一圈顶点的索引,从0到顶点数，每个点都要看
+            nbrs_ids = np.array([n for n in nbrs_ids if n != -1])   # 没游走到的点是-1去掉
+            if nbrs_ids.size:   # 0号点周围有点
+                first_ring_pred = (pred_orig[nbrs_ids].T / model['pred_count'][nbrs_ids]).T  # (5, 10)
                 nbrs_pred = np.mean(first_ring_pred, axis=0) * 0.5
                 av_pred[v] = this_pred + nbrs_pred
             else:
                 av_pred[v] = this_pred
-        model['pred'] = av_pred
+        model['pred'] = av_pred    # 预测结果变成平均的结果
 
 
 def calc_accuracy_test(logdir=None, dataset_expansion=None, dnn_model=None, params=None,
@@ -139,56 +139,57 @@ def calc_accuracy_test(logdir=None, dataset_expansion=None, dnn_model=None, para
     # Prepare parameters for the evaluation
     if params is None:
         with open(logdir + '/params.txt') as fp:
-            params = EasyDict(json.load(fp))
-        params.model_fn = logdir + '/learned_model.keras'
+            params = EasyDict(json.load(fp))  # 把参数加载进来
+        params.model_fn = logdir + '/learned_model.keras'  # 放模型的目录
         params.new_run = 0
     else:
         params = copy.deepcopy(params)
     if logdir is not None:
         params.logdir = logdir
     params.mix_models_in_minibatch = False
-    params.batch_size = 1
-    params.net_input.append('vertex_indices')
-    params.n_walks_per_model = n_walks_per_model
+    params.batch_size = 1    # 一次只看一个模型
+    params.net_input.append('vertex_indices')  # 除了dxdydz再加上vertex_indices变成4
+    params.n_walks_per_model = n_walks_per_model  # 每个模型32次游走，本来是4
 
-    # Prepare the dataset
+    # Prepare the dataset  n_items是29，就是29个测试模型
     test_dataset, n_items = dataset.tf_mesh_dataset(params, dataset_expansion, mode=params.network_task,
                                                     shuffle_size=0, size_limit=np.inf, permute_file_names=False,
                                                     must_run_on_all=True, data_augmentation=data_augmentation)
 
-    # If dnn_model is not provided, load it
+    # If dnn_model is not provided, load it  加载模型
     if dnn_model is None:
         dnn_model = rnn_model.RnnWalkNet(params, params.n_classes, params.net_input_dim - 1, model_fn,
                                          model_must_be_load=True,
-                                          dump_model_visualization=False)
+                                         dump_model_visualization=False)
 
     # Skip the 1st half of the walk to get the vertices predictions that are more reliable
-    skip = int(params.seq_len * 0.5)
+    skip = int(params.seq_len * 0.5)  # 前一半的预测结果不要
     models = {}
 
     # Go through the dataset n_iters times
-    for _ in tqdm(range(n_iters)):
-        for name_, model_ftrs_, labels_ in test_dataset:
+    n_iters = 2
+    for _ in tqdm(range(n_iters)):   # 跑32次，够吗32*300=9600，一个模型1500个点，基本够了
+        for name_, model_ftrs_, labels_ in test_dataset:  # (1,32,300,4)
             name = name_.numpy()[0].decode()
-            assert name_.shape[0] == 1
-            model_ftrs = model_ftrs_[:, :, :, :-1]
-            all_seq = model_ftrs_[:, :, :, -1].numpy()
+            assert name_.shape[0] == 1   # 保证一次就跑一个
+            model_ftrs = model_ftrs_[:, :, :, :-1]  # (1, 32, 300, 3)
+            all_seq = model_ftrs_[:, :, :, -1].numpy()  # (1,32,300)  最后一个参数就是顶点的索引
             if name not in models.keys():
                 models[name] = get_model_by_name(name)
-                models[name]['pred'] = np.zeros((models[name]['vertices'].shape[0], params.n_classes))
-                models[name]['pred_count'] = 1e-6 * np.ones(
+                models[name]['pred'] = np.zeros((models[name]['vertices'].shape[0], params.n_classes))  # (752,10)752是顶点数
+                models[name]['pred_count'] = 1e-6 * np.ones(    # (752,)  防止除0
                     (models[name]['vertices'].shape[0],))  # Initiated to a very small number to avoid devision by 0
 
-            sp = model_ftrs.shape
-            ftrs = tf.reshape(model_ftrs, (-1, sp[-2], sp[-1]))
-            predictions = dnn_model(ftrs, training=False).numpy()[:, skip:]
-            all_seq = all_seq[0, :, skip + 1:].reshape(-1).astype(np.int32)
-            predictions4vertex = predictions.reshape((-1, predictions.shape[-1]))
-            for w_step in range(all_seq.size):
-                models[name]['pred'][all_seq[w_step]] += predictions4vertex[w_step]
-                models[name]['pred_count'][all_seq[w_step]] += 1
+            sp = model_ftrs.shape   # (1, 32, 300, 3)
+            ftrs = tf.reshape(model_ftrs, (-1, sp[-2], sp[-1]))  # (32, 300, 3)
+            predictions = dnn_model(ftrs, training=False).numpy()[:, skip:]  # (32,149,10) 用后149个
+            all_seq = all_seq[0, :, skip + 1:].reshape(-1).astype(np.int32)   # (4768,)  所有用到的点  32*150=4800
+            predictions4vertex = predictions.reshape((-1, predictions.shape[-1]))  # (4768,10)
+            for w_step in range(all_seq.size):   # 4768 都过一遍，这个很慢
+                models[name]['pred'][all_seq[w_step]] += predictions4vertex[w_step]   # 把对应预测的结果加上去
+                models[name]['pred_count'][all_seq[w_step]] += 1                      # 加了多少次要记录下来
 
-    postprocess_vertex_predictions(models)
+    postprocess_vertex_predictions(models)   # 后处理
     e_acc_after_postproc, v_acc_after_postproc, f_acc_after_postproc = calc_final_accuracy(models)
 
     return [e_acc_after_postproc, e_acc_after_postproc], dnn_model
@@ -212,7 +213,8 @@ if __name__ == '__main__':
         job = sys.argv[1]  # coseg
         job_part = sys.argv[2]  # aliens
         params = get_params(job, job_part)
-        dataset_expansion = params.datasets2use['test'][0]
-        # "datasets_processed/coseg_from_meshcnn/coseg_aliens/*test*.npz"
+        # dataset_expansion = params.datasets2use['test'][0]  # 'xxx/coseg_aliens/*test*.npz'
+        dataset_expansion = 'datasets_processed/coseg_from_meshcnn/test/*test*.npz'
+
         accs, _ = calc_accuracy_test(logdir, dataset_expansion)
         print('Edge accuracy:', accs[0])  # 计算边上准确率，估计是为了和meshcnn比较

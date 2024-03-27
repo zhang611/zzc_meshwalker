@@ -53,17 +53,17 @@ def get_gpu_temprature():
 def backup_python_files_and_params(params):
     save_id = 0
     while 1:
-        code_log_folder = params.logdir + '/.' + str(save_id)
+        code_log_folder = params.logdir + '/.' + str(save_id)  # 参数那里就设置好实验目录了，这个.0就是备份代码的地方
         if not os.path.isdir(code_log_folder):
-            os.makedirs(code_log_folder)
+            os.makedirs(code_log_folder)    # 第一次创建实验的目录
             for file in os.listdir():
                 if file.endswith('py'):
                     shutil.copyfile(file, code_log_folder + '/' + file)
             break
         else:
-            save_id += 1
+            save_id += 1   # 下一个版本
 
-    # Dump params to text file
+    # Dump params to text file  保存参数
     try:
         prm2dump = copy.deepcopy(params)
         if 'hyper_params' in prm2dump.keys():
@@ -112,23 +112,25 @@ def check_mem_and_exit_if_full():
     return free_mem_gb
 
 
+# 保存模型用的计数器
 next_iter_to_keep = 0  # Should be set by -train_val- function, each time job starts
 
 
 def save_model_if_needed(iterations, dnn_model, params):
-    global next_iter_to_keep
-    iter_th = 20000
-    keep = iterations.numpy() >= next_iter_to_keep
-    dnn_model.save_weights(params.logdir, iterations.numpy(), keep=keep)
-    if keep:
+    global next_iter_to_keep   # 1w，在主函数里面设置
+    iter_th = 20000   # 2w
+
+    keep = iterations.numpy() >= next_iter_to_keep    # 迭代1w次之后才会开始keep 1w/8=1250
+    dnn_model.save_weights(params.logdir, iterations.numpy(), keep=keep)  # keep是否保留旧的权重文件
+    if keep:   # 覆盖保存的权重，同时算一下准确率
         if iterations < iter_th:
-            next_iter_to_keep = iterations * 2
+            next_iter_to_keep = iterations * 2   # 保存的间隔是成倍的增加，16*2
         else:
-            next_iter_to_keep = int(iterations / iter_th) * iter_th + iter_th
-        if params.full_accuracy_test is not None:
+            next_iter_to_keep = int(iterations / iter_th) * iter_th + iter_th  # 就每隔2500轮，2w次迭代保存一次
+        if params.full_accuracy_test is not None:  # 进行完全测试
             if params.network_task == 'semantic_segmentation':
                 accuracy, _ = evaluate_segmentation.calc_accuracy_test(params=params, dnn_model=dnn_model,
-                                                                       **params.full_accuracy_test)
+                                                                       **params.full_accuracy_test)  # 测试！！
             elif params.network_task == 'classification':
                 accuracy, _ = evaluate_classification.calc_accuracy_test(params=params, dnn_model=dnn_model,
                                                                          **params.full_accuracy_test)

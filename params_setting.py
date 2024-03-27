@@ -57,7 +57,7 @@ def set_up_default_params(network_task, run_name, cont_run_number=0):
     # 分割batch为8，8个模型一起输入，每个模型走8条walk
 
     # Other params
-    params.log_freq = 100
+    params.log_freq = 100    # 控制写记录的频率，迭代100次，梯度下降100次，记录一次
     params.walk_alg = 'random_global_jumps'
     params.net_input = ['dxdydz']  # 'xyz', 'dxdydz', 'jump_indication'
     params.train_min_max_faces2use = [0, np.inf]   # 限定模型面数的最小和最大值，过滤异常模型

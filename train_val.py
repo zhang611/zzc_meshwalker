@@ -21,7 +21,7 @@ import params_setting
 
 
 def train_val(params):
-    utils.next_iter_to_keep = 10000  #
+    utils.next_iter_to_keep = 10  # 1w次迭代之后才开始覆盖模型参数
     print(utils.color.BOLD + utils.color.RED + 'params.logdir :::: ', params.logdir, utils.color.END)
     print(utils.color.BOLD + utils.color.RED, os.getpid(), utils.color.END)
     utils.backup_python_files_and_params(params)
@@ -169,11 +169,11 @@ def train_val(params):
             str_to_print = str(os.getpid()) + ') Epoch' + str(epoch) + ', iter ' + str(optimizer.iterations.numpy())  # 输出信息，'14308) Epoch1, iter 0'
 
             # Save some logs & infos
-            utils.save_model_if_needed(optimizer.iterations, dnn_model, params)
+            utils.save_model_if_needed(optimizer.iterations, dnn_model, params)  # 迭代数，不是batch数
             if tb_epoch is not None:
                 e_time = time.time() - tb_epoch
-                tf.summary.scalar('time/one_epoch', e_time, step=optimizer.iterations)
-                tf.summary.scalar('time/av_one_trn_itr', e_time / n_iters, step=optimizer.iterations)
+                tf.summary.scalar('time/one_epoch', e_time, step=optimizer.iterations)   # 一个epoch的时间
+                tf.summary.scalar('time/av_one_trn_itr', e_time / n_iters, step=optimizer.iterations)  # 平均iter的时间
                 for name in time_msrs_names:
                     if time_msrs[name]:  # if there is something to save
                         tf.summary.scalar('time/' + name, time_msrs[name], step=optimizer.iterations)
@@ -192,12 +192,12 @@ def train_val(params):
             # Train one EPOC
             train_logs['seg_loss'].reset_states()
             tb = time.time()  # 记录iter开始的时间
-            for iter_db in range(train_epoch_size):  # 一个epoch八个iter
+            for iter_db in range(train_epoch_size):  # 一个epoch八个iter，每次迭代选8个模型，每个模型四条路径，300个点
                 for dataset_id in range(len(train_datasets)):
                     name, model_ftrs, labels = train_ds_iters[dataset_id].next()  # 八个模型的路径，特征(8 4 300 3)，标签(8 4 300)
                     dataset_type = utils.get_dataset_type_from_name(name)  # coseg
                     time_msrs['get_train_data'] += time.time() - tb
-                    n_iters += 1
+                    n_iters += 1   # 迭代一次
                     tb = time.time()
                     if params.train_loss[dataset_id] == 'cros_entr':
                         train_step(model_ftrs, labels, one_label_per_model=one_label_per_model)  # 一步训练
@@ -206,29 +206,29 @@ def train_val(params):
                         raise Exception('Unsupported loss_type: ' + params.train_loss[dataset_id])
                     time_msrs['train_step'] += time.time() - tb  # 训练一步花的时间，就是 一个iter
                     tb = time.time()
-                if iter_db == train_epoch_size - 1:
+                if iter_db == train_epoch_size - 1:  # 一个epoch的迭代结束，记录一下loss
                     str_to_print += ', TrnLoss: ' + str(round(train_logs[loss2show].result().numpy(), 2))
 
             # Dump training info to tensorboard
             if optimizer.iterations >= next_iter_to_log:
-                for k, v in train_logs.items():
+                for k, v in train_logs.items():  # 遍历训练日志中的各项，seg_loss和seg_train_accuracy,
                     if v.count.numpy() > 0:
                         tf.summary.scalar('train/' + k, v.result(), step=optimizer.iterations)
                         v.reset_states()
-                next_iter_to_log += params.log_freq
+                next_iter_to_log += params.log_freq   # 下一次记录的时间，控制写记录的频率
 
             # Run test on part of the test set  八次iter 也就是一次epoch就要跑一下测试集
             if test_dataset is not None:
                 n_test_iters = 0
                 tb = time.time()
                 for name, model_ftrs, labels in test_dataset:
-                    n_test_iters += model_ftrs.shape[0]
-                    if n_test_iters > params.n_models_per_test_epoch:
+                    n_test_iters += model_ftrs.shape[0]   # 一次加8，24+5最后是29,29个模型都要过一遍，每个模型还是走四条序列
+                    if n_test_iters > params.n_models_per_test_epoch:   # 8 > 300
                         break
-                    confusion = test_step(model_ftrs, labels, one_label_per_model=one_label_per_model)
-                    dataset_type = utils.get_dataset_type_from_name(name)
+                    confusion = test_step(model_ftrs, labels, one_label_per_model=one_label_per_model)  # (10, 10)混淆矩阵用来评估新能
+                    dataset_type = utils.get_dataset_type_from_name(name)  # 'coseg'
                     if dataset_type in all_confusion.keys():
-                        all_confusion[dataset_type] += confusion
+                        all_confusion[dataset_type] += confusion  # 已经有了就在这钱的基础上加上
                     else:
                         all_confusion[dataset_type] = confusion
                 # Dump test info to tensorboard
@@ -237,7 +237,7 @@ def train_val(params):
                 accrcy_smoothed = accrcy_smoothed * .9 + test_accuracy.result() * 0.1
                 tf.summary.scalar('test/accuracy_' + dataset_type, test_accuracy.result(), step=optimizer.iterations)
                 str_to_print += ', test/accuracy_' + dataset_type + ': ' + str(round(test_accuracy.result().numpy(), 2))
-                test_accuracy.reset_states()
+                test_accuracy.reset_states()   # 清空，为了下一轮记录
                 time_msrs['test'] += time.time() - tb  # 跑测试集花的时间
 
             str_to_print += ', time: ' + str(round(e_time, 1))
